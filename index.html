@@ -16,26 +16,9 @@
     <!-- Master Application Stylesheet -->
     <link rel="stylesheet" href="css/style.css" />
     <style>
-      /* Pure CSS Tab Switching for Login & First-Run Setup */
       .tab-view-container {
         position: relative;
       }
-
-      #setup-tab-content {
-        display: none;
-      }
-
-      /* When #first-run-setup is targeted via anchor, show setup tab */
-      body:has(#first-run-setup:target) #login-tab-content,
-      #first-run-setup:target ~ .auth-form-card #login-tab-content {
-        display: none;
-      }
-      body:has(#first-run-setup:target) #setup-tab-content,
-      #first-run-setup:target ~ .auth-form-card #setup-tab-content {
-        display: block;
-      }
-
-      /* Fallback / Anchor based tab active styles */
       .auth-tab-link.active-login {
         color: var(--color-primary);
         border-bottom-color: var(--color-primary);
@@ -203,39 +186,17 @@
       </div>
 
       <div class="hero-footer">
-        HCM Lite · Human Capital Management · Saylani Hackathon Phase 1 UI
+        HCM Lite · Human Capital Management · Saylani Hackathon Web App
       </div>
     </aside>
 
     <!-- Right Authentication & Setup Panel -->
     <main class="auth-form-panel">
-      <!-- Direct Portal Quick Navigation for Testing & Evaluation -->
-      <div class="auth-portal-selector">
-        <span>Direct Workspace Access:</span>
+      <!-- Portal Mode Indicator -->
+      <div class="auth-portal-selector" id="authPortalSelector">
+        <span id="portalSelectorHint">Secure Workplace Portal</span>
         <div class="portal-links">
-          <a href="pages/admin.html" class="btn btn-sm btn-primary">
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <path d="M12 2a10 10 0 1 0 10 10H12V2z" />
-            </svg>
-            Admin Portal
-          </a>
-          <a href="pages/employee.html" class="btn btn-sm btn-secondary">
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-              <circle cx="12" cy="7" r="4" />
-            </svg>
-            Employee Portal
-          </a>
+          <span class="badge badge-primary">Admin &amp; Employee Self-Service</span>
         </div>
       </div>
 
@@ -528,5 +489,16 @@
         <span>256-bit encrypted secure session · HCM Lite Platform</span>
       </footer>
     </main>
+
+    <!-- Application JavaScript Modules -->
+    <script src="js/storage.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/employees.js"></script>
+    <script src="js/attendance.js"></script>
+    <script src="js/leave.js"></script>
+    <script src="js/payslip.js"></script>
+    <script src="js/helper.js"></script>
+    <script src="js/announcements.js"></script>
+    <script src="js/app.js"></script>
   </body>
 </html>
