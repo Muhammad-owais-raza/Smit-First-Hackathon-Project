@@ -28,7 +28,10 @@ const Storage = (() => {
     dailyWorkHours: 8,
     workingDays: [1, 2, 3, 4, 5], // 0=Sun, 1=Mon, ..., 6=Sat (Mon-Fri)
     yearlyLeaveQuota: 20,
-    leavePolicyDescription: 'Employees are entitled to 20 paid leave days annually. All applications must be submitted at least 24 hours prior to planned absence, except in emergency sick leave situations.'
+    leavePolicyDescription: 'Employees are entitled to 20 paid leave days annually. All applications must be submitted at least 24 hours prior to planned absence, except in emergency sick leave situations.',
+    officeLatitude: null,
+    officeLongitude: null,
+    officeRadius: 200
   };
 
   /**
@@ -143,7 +146,10 @@ const Storage = (() => {
    */
   function timeToMinutes(timeStr) {
     if (!timeStr || typeof timeStr !== 'string') return 0;
-    const [h, m] = timeStr.split(':').map(v => parseInt(v, 10));
+    // Destructuring ki jagah simple variable use karo
+    var timeParts = timeStr.split(':');
+    var h = parseInt(timeParts[0], 10);
+    var m = parseInt(timeParts[1], 10);
     return (isNaN(h) ? 0 : h) * 60 + (isNaN(m) ? 0 : m);
   }
 
@@ -167,7 +173,7 @@ const Storage = (() => {
     if (isNaN(totalMinutes) || totalMinutes <= 0) return '0h 00m';
     const hours = Math.floor(totalMinutes / 60);
     const mins = Math.floor(totalMinutes % 60);
-    return `${hours}h ${String(mins).padStart(2, '0')}m`;
+    return `${hours}h ${String(mins).padStart(2, '00')}m`;
   }
 
   /**
@@ -287,12 +293,13 @@ const Storage = (() => {
 
   /**
    * Save company settings.
+   * Spread ki jagah Object.assign use karo - same kaam karta hai lekin ziada clear hai
    * @param {Object} settings
    * @returns {boolean}
    */
   function saveCompanySettings(settings) {
     const current = getCompanySettings();
-    const updated = { ...current, ...settings };
+    const updated = Object.assign({}, current, settings);
     return set(KEYS.COMPANY, updated);
   }
 

@@ -15,20 +15,34 @@ const Leave = (() => {
    */
   function getRemainingLeaveBalance(employeeId, year = new Date().getFullYear()) {
     const company = Storage.getCompanySettings();
-    const quota = parseInt(company.yearlyLeaveQuota, 10) || 20;
+
+    // Zero-value fix: agar quota 0 ho to 0 rehne do, sirf NaN ya negative par default use karo
+    var quota = parseInt(company.yearlyLeaveQuota, 10);
+    if (isNaN(quota) || quota < 0) {
+      quota = 20;
+    }
 
     const allLeaves = Storage.get(Storage.KEYS.LEAVES, []);
     const yearStr = String(year);
 
     // Sum working days of all approved leaves in this calendar year
-    const approvedLeaves = allLeaves.filter(l => 
-      l.employeeId === employeeId &&
-      l.status === 'approved' &&
-      l.leaveType !== 'Unpaid' &&
-      (l.startDate.startsWith(yearStr) || l.endDate.startsWith(yearStr))
-    );
+    var approvedLeaves = [];
+    for (var i = 0; i < allLeaves.length; i++) {
+      var l = allLeaves[i];
+      if (
+        l.employeeId === employeeId &&
+        l.status === 'approved' &&
+        l.leaveType !== 'Unpaid' &&
+        (l.startDate.startsWith(yearStr) || l.endDate.startsWith(yearStr))
+      ) {
+        approvedLeaves.push(l);
+      }
+    }
 
-    const used = approvedLeaves.reduce((sum, l) => sum + (l.workingDays || 0), 0);
+    var used = 0;
+    for (var j = 0; j < approvedLeaves.length; j++) {
+      used += (approvedLeaves[j].workingDays || 0);
+    }
     const remaining = Math.max(0, quota - used);
 
     return { quota, used, remaining };
@@ -36,6 +50,8 @@ const Leave = (() => {
 
   /**
    * Submit an employee leave application.
+   * Leave apply karna: dates validate karo, quota check karo, overlap check karo,
+   * phir record save karo aur admin ko review ke liye bhejo.
    * @param {Object} param0
    * @returns {{success: boolean, error?: string, leave?: Object}}
    */
@@ -72,14 +88,21 @@ const Leave = (() => {
 
     // Check for overlapping leaves for this employee (blocks overlap with pending and approved requests)
     const allLeaves = Storage.get(Storage.KEYS.LEAVES, []);
-    const existingRequests = allLeaves.filter(l => 
-      l.employeeId === employeeId && 
-      (l.status === 'pending' || l.status === 'approved')
-    );
+    var existingRequests = [];
+    for (var i = 0; i < allLeaves.length; i++) {
+      if (allLeaves[i].employeeId === employeeId &&
+          (allLeaves[i].status === 'pending' || allLeaves[i].status === 'approved')) {
+        existingRequests.push(allLeaves[i]);
+      }
+    }
 
-    const hasOverlap = existingRequests.some(l => 
-      Storage.isDateOverlap(startDate, endDate, l.startDate, l.endDate)
-    );
+    var hasOverlap = false;
+    for (var j = 0; j < existingRequests.length; j++) {
+      if (Storage.isDateOverlap(startDate, endDate, existingRequests[j].startDate, existingRequests[j].endDate)) {
+        hasOverlap = true;
+        break;
+      }
+    }
 
     if (hasOverlap) {
       return { success: false, error: 'This date range overlaps with an existing pending or approved leave request.' };
@@ -89,9 +112,9 @@ const Leave = (() => {
     if (leaveType !== 'Unpaid') {
       const balance = getRemainingLeaveBalance(employeeId, start.getFullYear());
       if (workingDays > balance.remaining) {
-        return { 
-          success: false, 
-          error: `Requested duration (${workingDays} working days) exceeds your remaining yearly leave balance of ${balance.remaining} days.` 
+        return {
+          success: false,
+          error: 'Requested duration (' + workingDays + ' working days) exceeds your remaining yearly leave balance of ' + balance.remaining + ' days.'
         };
       }
     }
@@ -128,7 +151,13 @@ const Leave = (() => {
     }
 
     const allLeaves = Storage.get(Storage.KEYS.LEAVES, []);
-    const index = allLeaves.findIndex(l => l.id === leaveId);
+    var index = -1;
+    for (var i = 0; i < allLeaves.length; i++) {
+      if (allLeaves[i].id === leaveId) {
+        index = i;
+        break;
+      }
+    }
 
     if (index === -1) {
       return { success: false, error: 'Leave request not found.' };
@@ -136,7 +165,7 @@ const Leave = (() => {
 
     const leave = allLeaves[index];
     if (leave.status !== 'pending') {
-      return { success: false, error: `This request has already been ${leave.status} and cannot be reviewed again.` };
+      return { success: false, error: 'This request has already been ' + leave.status + ' and cannot be reviewed again.' };
     }
 
     // If approving, re-verify quota and overlaps
@@ -145,19 +174,26 @@ const Leave = (() => {
       if (leave.leaveType !== 'Unpaid') {
         const balance = getRemainingLeaveBalance(leave.employeeId, start ? start.getFullYear() : undefined);
         if (leave.workingDays > balance.remaining) {
-          return { success: false, error: `Cannot approve: Employee only has ${balance.remaining} leave days remaining.` };
+          return { success: false, error: 'Cannot approve: Employee only has ' + balance.remaining + ' leave days remaining.' };
         }
       }
 
       // Re-verify overlap against other approved requests
-      const otherApproved = allLeaves.filter(l => 
-        l.id !== leave.id && 
-        l.employeeId === leave.employeeId && 
-        l.status === 'approved'
-      );
-      const overlap = otherApproved.some(l => 
-        Storage.isDateOverlap(leave.startDate, leave.endDate, l.startDate, l.endDate)
-      );
+      var otherApproved = [];
+      for (var j = 0; j < allLeaves.length; j++) {
+        if (allLeaves[j].id !== leave.id &&
+            allLeaves[j].employeeId === leave.employeeId &&
+            allLeaves[j].status === 'approved') {
+          otherApproved.push(allLeaves[j]);
+        }
+      }
+      var overlap = false;
+      for (var k = 0; k < otherApproved.length; k++) {
+        if (Storage.isDateOverlap(leave.startDate, leave.endDate, otherApproved[k].startDate, otherApproved[k].endDate)) {
+          overlap = true;
+          break;
+        }
+      }
       if (overlap) {
         return { success: false, error: 'Cannot approve: Overlaps with another approved leave.' };
       }
@@ -180,9 +216,14 @@ const Leave = (() => {
    */
   function getLeavesByEmployee(employeeId) {
     const allLeaves = Storage.get(Storage.KEYS.LEAVES, []);
-    return allLeaves
-      .filter(l => l.employeeId === employeeId)
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    var filtered = [];
+    for (var i = 0; i < allLeaves.length; i++) {
+      if (allLeaves[i].employeeId === employeeId) {
+        filtered.push(allLeaves[i]);
+      }
+    }
+    filtered.sort(function(a, b) { return new Date(b.createdAt) - new Date(a.createdAt); });
+    return filtered;
   }
 
   /**
@@ -192,22 +233,40 @@ const Leave = (() => {
    */
   function getAllLeaves(filters = {}) {
     const allLeaves = Storage.get(Storage.KEYS.LEAVES, []);
-    let filtered = [...allLeaves];
+    var filtered = allLeaves.slice(); // copy
 
     if (filters.status) {
-      filtered = filtered.filter(l => l.status.toLowerCase() === filters.status.toLowerCase());
+      var tmp = [];
+      for (var i = 0; i < filtered.length; i++) {
+        if (filtered[i].status.toLowerCase() === filters.status.toLowerCase()) {
+          tmp.push(filtered[i]);
+        }
+      }
+      filtered = tmp;
     }
 
     if (filters.leaveType) {
-      filtered = filtered.filter(l => l.leaveType === filters.leaveType);
+      var tmp2 = [];
+      for (var j = 0; j < filtered.length; j++) {
+        if (filtered[j].leaveType === filters.leaveType) {
+          tmp2.push(filtered[j]);
+        }
+      }
+      filtered = tmp2;
     }
 
     if (filters.date) {
-      // Check if filter date falls within [startDate, endDate]
-      filtered = filtered.filter(l => l.startDate <= filters.date && l.endDate >= filters.date);
+      var tmp3 = [];
+      for (var k = 0; k < filtered.length; k++) {
+        if (filtered[k].startDate <= filters.date && filtered[k].endDate >= filters.date) {
+          tmp3.push(filtered[k]);
+        }
+      }
+      filtered = tmp3;
     }
 
-    return filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    filtered.sort(function(a, b) { return new Date(b.createdAt) - new Date(a.createdAt); });
+    return filtered;
   }
 
   /**
@@ -220,7 +279,12 @@ const Leave = (() => {
    */
   function getApprovedLeaveDaysInMonth(employeeId, year, monthIndex) {
     const allLeaves = Storage.get(Storage.KEYS.LEAVES, []);
-    const approved = allLeaves.filter(l => l.employeeId === employeeId && l.status === 'approved');
+    var approved = [];
+    for (var i = 0; i < allLeaves.length; i++) {
+      if (allLeaves[i].employeeId === employeeId && allLeaves[i].status === 'approved') {
+        approved.push(allLeaves[i]);
+      }
+    }
     if (!approved.length) return 0;
 
     const company = Storage.getCompanySettings();
@@ -233,7 +297,13 @@ const Leave = (() => {
       const d = new Date(year, monthIndex, day);
       if (workingDaysConfig.includes(d.getDay())) {
         const dateStr = Storage.formatLocalDate(d);
-        const hasApprovedLeave = approved.some(l => l.startDate <= dateStr && l.endDate >= dateStr);
+        var hasApprovedLeave = false;
+        for (var j = 0; j < approved.length; j++) {
+          if (approved[j].startDate <= dateStr && approved[j].endDate >= dateStr) {
+            hasApprovedLeave = true;
+            break;
+          }
+        }
         if (hasApprovedLeave) {
           count++;
         }
@@ -251,12 +321,16 @@ const Leave = (() => {
    */
   function isEmployeeOnLeaveOnDate(employeeId, dateStr = Storage.getTodayLocalDate()) {
     const allLeaves = Storage.get(Storage.KEYS.LEAVES, []);
-    return allLeaves.some(l => 
-      l.employeeId === employeeId &&
-      l.status === 'approved' &&
-      l.startDate <= dateStr &&
-      l.endDate >= dateStr
-    );
+    for (var i = 0; i < allLeaves.length; i++) {
+      var l = allLeaves[i];
+      if (l.employeeId === employeeId &&
+          l.status === 'approved' &&
+          l.startDate <= dateStr &&
+          l.endDate >= dateStr) {
+        return true;
+      }
+    }
+    return false;
   }
 
   return {

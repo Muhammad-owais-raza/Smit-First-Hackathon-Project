@@ -9,6 +9,8 @@ const Attendance = (() => {
 
   /**
    * Record check-in for an employee on the current local day.
+   * Check-in matlab employee ka aana record karna - late hai ya time par.
+   * Grace period se check karte hain ke kitna delay allowed hai.
    * @param {string} employeeId
    * @returns {{success: boolean, error?: string, record?: Object}}
    */
@@ -19,14 +21,25 @@ const Attendance = (() => {
     const attendanceList = Storage.get(Storage.KEYS.ATTENDANCE, []);
 
     // 1. Enforce single check-in per employee per day
-    const existing = attendanceList.find(a => a.employeeId === employeeId && a.date === todayStr);
+    var existing = null;
+    for (var i = 0; i < attendanceList.length; i++) {
+      if (attendanceList[i].employeeId === employeeId && attendanceList[i].date === todayStr) {
+        existing = attendanceList[i];
+        break;
+      }
+    }
     if (existing) {
-      return { success: false, error: `You have already checked in today at ${existing.checkIn}.` };
+      return { success: false, error: 'You have already checked in today at ' + existing.checkIn + '.' };
     }
 
     const company = Storage.getCompanySettings();
     const officeStart = company.officeStartTime || '09:00';
-    const graceMin = parseInt(company.gracePeriod, 10) || 15;
+
+    // Grace period zero-value fix: agar 0 hai to 0 rehne do, sirf NaN ya negative par default use karo
+    var graceMin = parseInt(company.gracePeriod, 10);
+    if (isNaN(graceMin) || graceMin < 0) {
+      graceMin = 15;
+    }
 
     const currentTimeStr = Storage.formatLocalTime();
     const currentMins = Storage.timeToMinutes(currentTimeStr);
@@ -64,14 +77,21 @@ const Attendance = (() => {
     const todayStr = Storage.getTodayLocalDate();
     const attendanceList = Storage.get(Storage.KEYS.ATTENDANCE, []);
 
-    const index = attendanceList.findIndex(a => a.employeeId === employeeId && a.date === todayStr);
+    var index = -1;
+    for (var i = 0; i < attendanceList.length; i++) {
+      if (attendanceList[i].employeeId === employeeId && attendanceList[i].date === todayStr) {
+        index = i;
+        break;
+      }
+    }
+
     if (index === -1) {
       return { success: false, error: 'You must check in first before checking out.' };
     }
 
     const record = attendanceList[index];
     if (record.checkOut) {
-      return { success: false, error: `You have already checked out today at ${record.checkOut}.` };
+      return { success: false, error: 'You have already checked out today at ' + record.checkOut + '.' };
     }
 
     const currentTimeStr = Storage.formatLocalTime();
@@ -108,7 +128,12 @@ const Attendance = (() => {
   function getTodayAttendance(employeeId) {
     const todayStr = Storage.getTodayLocalDate();
     const attendanceList = Storage.get(Storage.KEYS.ATTENDANCE, []);
-    return attendanceList.find(a => a.employeeId === employeeId && a.date === todayStr) || null;
+    for (var i = 0; i < attendanceList.length; i++) {
+      if (attendanceList[i].employeeId === employeeId && attendanceList[i].date === todayStr) {
+        return attendanceList[i];
+      }
+    }
+    return null;
   }
 
   /**
@@ -118,9 +143,14 @@ const Attendance = (() => {
    */
   function getEmployeeAttendanceHistory(employeeId) {
     const attendanceList = Storage.get(Storage.KEYS.ATTENDANCE, []);
-    return attendanceList
-      .filter(a => a.employeeId === employeeId)
-      .sort((a, b) => b.date.localeCompare(a.date));
+    var filtered = [];
+    for (var i = 0; i < attendanceList.length; i++) {
+      if (attendanceList[i].employeeId === employeeId) {
+        filtered.push(attendanceList[i]);
+      }
+    }
+    filtered.sort(function(a, b) { return b.date.localeCompare(a.date); });
+    return filtered;
   }
 
   /**
@@ -130,7 +160,13 @@ const Attendance = (() => {
   function getCompanyAttendanceToday() {
     const todayStr = Storage.getTodayLocalDate();
     const attendanceList = Storage.get(Storage.KEYS.ATTENDANCE, []);
-    return attendanceList.filter(a => a.date === todayStr);
+    var result = [];
+    for (var i = 0; i < attendanceList.length; i++) {
+      if (attendanceList[i].date === todayStr) {
+        result.push(attendanceList[i]);
+      }
+    }
+    return result;
   }
 
   /**
@@ -149,17 +185,28 @@ const Attendance = (() => {
     const weekDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
     const summary = [];
     const attendanceList = Storage.get(Storage.KEYS.ATTENDANCE, []);
-    const activeStaff = Employees.getAllEmployees().filter(e => e.active !== false);
-    const totalStaffCount = activeStaff.length;
+    const allEmp = Employees.getAllEmployees();
+    var totalStaffCount = 0;
+    for (var ei = 0; ei < allEmp.length; ei++) {
+      if (allEmp[ei].active !== false) totalStaffCount++;
+    }
 
     for (let i = 0; i < 5; i++) {
       const d = new Date(monday);
       d.setDate(monday.getDate() + i);
       const dateStr = Storage.formatLocalDate(d);
 
-      const dayRecords = attendanceList.filter(a => a.date === dateStr);
+      var dayRecords = [];
+      for (var j = 0; j < attendanceList.length; j++) {
+        if (attendanceList[j].date === dateStr) {
+          dayRecords.push(attendanceList[j]);
+        }
+      }
       const presentCount = dayRecords.length;
-      const lateCount = dayRecords.filter(a => a.isLate).length;
+      var lateCount = 0;
+      for (var k = 0; k < dayRecords.length; k++) {
+        if (dayRecords[k].isLate) lateCount++;
+      }
       const absentCount = Math.max(0, totalStaffCount - presentCount);
 
       summary.push({
@@ -212,13 +259,22 @@ const Attendance = (() => {
     }
 
     // Get attendance records in this month
-    const monthPrefix = `${year}-${String(monthIndex + 1).padStart(2, '0')}`;
+    const monthPrefix = year + '-' + String(monthIndex + 1).padStart(2, '0');
     const allAttendance = Storage.get(Storage.KEYS.ATTENDANCE, []);
-    const empRecords = allAttendance.filter(a => a.employeeId === employeeId && a.date.startsWith(monthPrefix));
+    var empRecords = [];
+    for (var i = 0; i < allAttendance.length; i++) {
+      if (allAttendance[i].employeeId === employeeId && allAttendance[i].date.startsWith(monthPrefix)) {
+        empRecords.push(allAttendance[i]);
+      }
+    }
 
     const presentDays = empRecords.length;
-    const halfDays = empRecords.filter(a => a.status === 'half-day').length;
-    const lateDays = empRecords.filter(a => a.isLate).length;
+    var halfDays = 0;
+    var lateDays = 0;
+    for (var j = 0; j < empRecords.length; j++) {
+      if (empRecords[j].status === 'half-day') halfDays++;
+      if (empRecords[j].isLate) lateDays++;
+    }
 
     // Get approved leave days in this month
     const approvedLeaves = Leave ? Leave.getApprovedLeaveDaysInMonth(employeeId, year, monthIndex) : 0;

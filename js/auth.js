@@ -13,10 +13,13 @@ const Auth = (() => {
    * @returns {string}
    */
   function bufferToHex(buffer) {
+    // Buffer ko hex string mein convert karo (har byte ko 2-digit hex mein likhte hain)
     const byteArray = new Uint8Array(buffer);
-    return Array.from(byteArray)
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('');
+    var hex = '';
+    for (var i = 0; i < byteArray.length; i++) {
+      hex += byteArray[i].toString(16).padStart(2, '0');
+    }
+    return hex;
   }
 
   /**
@@ -25,9 +28,12 @@ const Auth = (() => {
    * @returns {ArrayBuffer}
    */
   function hexToBuffer(hex) {
-    const typedArray = new Uint8Array(
-      hex.match(/[\da-f]{2}/gi).map(h => parseInt(h, 16))
-    );
+    // Hex string ko wapas bytes mein badalna (har 2 characters ek byte bante hain)
+    var pairs = hex.match(/[\da-f]{2}/gi);
+    var typedArray = new Uint8Array(pairs.length);
+    for (var i = 0; i < pairs.length; i++) {
+      typedArray[i] = parseInt(pairs[i], 16);
+    }
     return typedArray.buffer;
   }
 
@@ -42,11 +48,17 @@ const Auth = (() => {
       return bufferToHex(bytes.buffer);
     }
     // Fallback pseudo-random for environments lacking crypto.getRandomValues
-    return Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+    var result = '';
+    for (var i = 0; i < 32; i++) {
+      result += Math.floor(Math.random() * 16).toString(16);
+    }
+    return result;
   }
 
   /**
    * Hash a password using PBKDF2 with SHA-256 and unique salt.
+   * Yeh function password ko secure tarike se hash karta hai taake
+   * original password kabhi store na ho - sirf uska hash rakha jata hai.
    * @param {string} password
    * @param {string} salt
    * @returns {Promise<string>}
@@ -109,7 +121,13 @@ const Auth = (() => {
   function isFirstRun() {
     const company = Storage.get(Storage.KEYS.COMPANY);
     const users = Storage.get(Storage.KEYS.USERS, []);
-    const hasAdmin = users.some(u => u.role === 'admin');
+    var hasAdmin = false;
+    for (var i = 0; i < users.length; i++) {
+      if (users[i].role === 'admin') {
+        hasAdmin = true;
+        break;
+      }
+    }
     return !company || !hasAdmin;
   }
 
@@ -142,11 +160,10 @@ const Auth = (() => {
 
     // Initialize company profile
     const currentCompany = Storage.getCompanySettings();
-    const updatedCompany = {
-      ...currentCompany,
+    const updatedCompany = Object.assign({}, currentCompany, {
       companyName: companyName.trim(),
       companyEmail: emailNormalized
-    };
+    });
     Storage.set(Storage.KEYS.COMPANY, updatedCompany);
 
     // Hash Admin password
@@ -168,8 +185,14 @@ const Auth = (() => {
     };
 
     const users = Storage.get(Storage.KEYS.USERS, []);
-    // Replace any existing or prepend
-    const updatedUsers = [adminUser, ...users.filter(u => u.id !== adminUser.id)];
+    // Replace any existing or prepend - exclude old admin entry then put new one first
+    var filteredUsers = [];
+    for (var i = 0; i < users.length; i++) {
+      if (users[i].id !== adminUser.id) {
+        filteredUsers.push(users[i]);
+      }
+    }
+    var updatedUsers = [adminUser].concat(filteredUsers);
     Storage.set(Storage.KEYS.USERS, updatedUsers);
 
     // Establish active session
@@ -194,7 +217,13 @@ const Auth = (() => {
 
     const emailNormalized = email.trim().toLowerCase();
     const users = Storage.get(Storage.KEYS.USERS, []);
-    const user = users.find(u => u.email.toLowerCase() === emailNormalized);
+    var user = null;
+    for (var i = 0; i < users.length; i++) {
+      if (users[i].email.toLowerCase() === emailNormalized) {
+        user = users[i];
+        break;
+      }
+    }
 
     if (!user) {
       return { success: false, error: 'No account found matching this email address.' };
@@ -236,7 +265,13 @@ const Auth = (() => {
     if (!session || !session.userId) return null;
 
     const users = Storage.get(Storage.KEYS.USERS, []);
-    const user = users.find(u => u.id === session.userId);
+    var user = null;
+    for (var i = 0; i < users.length; i++) {
+      if (users[i].id === session.userId) {
+        user = users[i];
+        break;
+      }
+    }
     return user || null;
   }
 
@@ -283,6 +318,61 @@ const Auth = (() => {
     }
   }
 
+  /**
+   * Change password for a logged-in user.
+   * Purana password verify karo, naya password hash karo aur save karo.
+   * @param {string} userId
+   * @param {string} currentPassword
+   * @param {string} newPassword
+   * @param {string} confirmPassword
+   * @returns {Promise<{success: boolean, error?: string}>}
+   */
+  async function changePassword(userId, currentPassword, newPassword, confirmPassword) {
+    if (!currentPassword) {
+      return { success: false, error: 'Current password is required.' };
+    }
+    if (!newPassword || newPassword.length < 8) {
+      return { success: false, error: 'New password must be at least 8 characters long.' };
+    }
+    if (newPassword !== confirmPassword) {
+      return { success: false, error: 'New password and confirmation do not match.' };
+    }
+
+    const users = Storage.get(Storage.KEYS.USERS, []);
+    var userIndex = -1;
+    for (var i = 0; i < users.length; i++) {
+      if (users[i].id === userId) {
+        userIndex = i;
+        break;
+      }
+    }
+
+    if (userIndex === -1) {
+      return { success: false, error: 'User account not found.' };
+    }
+
+    const user = users[userIndex];
+
+    // Purana password verify karo
+    const valid = await verifyPassword(currentPassword, user.passwordHash, user.passwordSalt);
+    if (!valid) {
+      return { success: false, error: 'Current password is incorrect.' };
+    }
+
+    // Naya password hash karo aur save karo
+    const newSalt = generateSalt();
+    const newHash = await hashPassword(newPassword, newSalt);
+
+    users[userIndex] = Object.assign({}, user, {
+      passwordHash: newHash,
+      passwordSalt: newSalt,
+      updatedAt: new Date().toISOString()
+    });
+
+    Storage.set(Storage.KEYS.USERS, users);
+    return { success: true };
+  }
+
   return {
     generateSalt,
     hashPassword,
@@ -293,6 +383,7 @@ const Auth = (() => {
     logout,
     getCurrentUser,
     requireAuth,
-    redirectIfLoggedIn
+    redirectIfLoggedIn,
+    changePassword
   };
 })();
